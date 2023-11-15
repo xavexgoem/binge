@@ -322,11 +322,6 @@ def bin2intermediate(f):
         poly.points = []
         poly.lights = []
         poly.uvs = []
-        
-        if(poly.type & 3 == 3): # if this is a texture mapped poly
-            has_uvs = True
-        else:
-            has_uvs = False # todo - whatever else we need for rgb and pal
 
         poly_subobj = None
         for __ in range(poly.n_points):
@@ -355,7 +350,8 @@ def bin2intermediate(f):
         for __ in range(poly.n_points):
             idx = unpack("< H", f.read(2))[0]
             poly.lights.append(idx)
-        if has_uvs:
+
+        if(poly.type & 3 == 3): # if this is a texture mapped poly
             for __ in range(poly.n_points):
                 idx = unpack("< H", f.read(2))[0]
                 poly.uvs.append(m.uvs[idx])
@@ -507,7 +503,15 @@ def import_bin(context, filepath, use_some_setting):
             o.instance.parent = o.parent.instance
             o.instance.matrix_world = trans
 
-            
+
+    ## bounding box
+    main_obj = m.subobjects[0]
+    bpy.ops.object.empty_add(type="CUBE", scale=(m.bounds_max.x, m.bounds_max.y, m.bounds_max.z))
+    bpy.context.object.parent = main_obj.instance
+    bpy.context.object.name = "bbox"
+    # for reasons I don't understand, the scale param in empty_add doesn't work, so:
+    bpy.context.object.scale = (m.bounds_max.x, m.bounds_max.y, m.bounds_max.z)
+    bpy.context.object.hide_set(True) # not visible by default
 
     return {'FINISHED'}
 
