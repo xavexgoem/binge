@@ -1,0 +1,1267 @@
+<input type="file" id="input">
+
+<style>
+* { font-family: "consolas", mono; font-weight: bold; color: #111; }
+.contain { width: 33%; }
+table { width: 100%; min-width: 640px; border-collapse: collapse; }
+th { background-color: #111; color: #eee; font-size: 110%; }
+td { margin: 0; padding: 0; }
+tr:nth-child(odd) { background-color: #eee; }
+.sep { border-bottom: 2px solid #999;}
+</style>
+
+<div class="contain">
+<table id="table">
+	<tr>
+		<th colspan=2 id="name" style="height: 18pt;"></th>
+	</tr>
+	<tr class="sep"><td>version</td><td id="version"></td></tr>
+	
+	<tr><td>min radius</td><td class="float" id="min_radius"></td></tr>
+	<tr><td>max radius</td><td class="float" id="max_radius"></td></tr>
+	
+	<tr><td>min bounds</td><td class="vec3" id="min_bounds"></td></tr>
+	<tr class="sep"><td>max bounds</td><td class="vec3" id="max_bounds"></td></tr>
+	
+	<tr><td># polys</td><td id="num_polys"></td></tr>
+	<tr><td># points</td><td id="num_points"></td></tr>
+	<tr><td># params</td><td id="num_params"></td></tr>
+	<tr><td># materials</td><td id="num_materials"></td></tr>
+	<tr><td># vcalls</td><td id="num_vcalls"></td></tr>
+	<tr><td># vhots</td><td id="num_vhots"></td></tr>
+	<tr class="sep"><td># objects</td><td id="num_objs"></td></tr>
+	<tr><td>obj offset</td><td id="offset_obj"></td></tr>
+	<tr><td>material offset</td><td id="offset_obj"></td></tr>
+	<tr><td>mapping offset</td><td id="offset_obj"></td></tr>
+	<tr><td>vhot offset</td><td id="offset_obj"></td></tr>
+	<tr><td>point offset</td><td id="offset_obj"></td></tr>
+	<tr><td>light offset</td><td id="offset_obj"></td></tr>
+	<tr><td>normal offset</td><td id="offset_obj"></td></tr>
+	<tr><td>poly offset</td><td id="offset_obj"></td></tr>
+	<tr class="sep"><td>node offset</td><td id="offset_obj"></td></tr>
+	<tr><td>
+	<tr><td>bin size</td><td id="bin_size"></td></tr>
+	
+	<tr><th colspan=2>OBJECT HEADER</th></tr>
+	<tr><td>name</td><td id="obj-name"></td></tr>
+</table>
+</div>
+
+<script>
+
+function stat(id, val) {
+	let $elem = document.getElementById(id);
+	if($elem.className == "vec3") {
+		console.log(val);
+		let x = Number.parseFloat(val[0]).toFixed(4);
+		let y = Number.parseFloat(val[1]).toFixed(4);
+		let z = Number.parseFloat(val[2]).toFixed(4);
+		console.log(z);
+		$elem.innerHTML = x + ", " + y + ", " + z;
+	} else {
+		$elem.innerHTML = val;
+	}
+}
+
+model = 0;
+
+const SZ_R64 = 8;
+const SZ_R32 = 4;
+const SZ_I32 = 4;
+const SZ_U32 = 4;
+const SZ_I16 = 2;
+const SZ_U16 = 2;
+const SZ_I8 = 1;
+const SZ_U8 = 1;
+class Buffer {
+	buf; // ArrayBuffer
+	dv;  // DataView
+	cursor;
+	
+	constructor(buffer) {
+		this.buf = buffer;
+		this.dv = new DataView(this.buf);
+		this.cursor = 0;
+	}
+	
+	r64(at) {
+		if(!at)
+			at = this.cursor;
+		this.cursor += SZ_R64;	
+		return this.dv.getFloat64(at, true);
+	}
+	
+	r32(at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_R32;
+		return this.dv.getFloat32(at, true);
+	}
+	
+	set_r32(val, at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_R32;
+		this.dv.setFloat32(at, val, true);
+	}
+	
+	i32(at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_I32;;
+		return this.dv.getInt32(at, true);
+	}
+	
+	u32(at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_U32;
+		return this.dv.getUint32(at, true);
+	}
+
+	set_u32(val, at) { 
+		if(!at) at = this.cursor;
+		this.cursor += SZ_U32;
+		this.dv.setUint32(at, val, true);
+	}
+	
+	i16(at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_I16;
+		return this.dv.getInt16(at, true);
+	}
+	
+	set_i16(val, at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_I16;
+		this.dv.setInt16(at, val, true);
+	}
+	
+	u16(at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_U16;
+		return this.dv.getUint16(at, true);
+	}
+	
+	set_u16(val, at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_U16;
+		this.dv.setUint16(at, val, true);
+	}
+	
+	i8(at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_I8;
+		return this.dv.getInt8(at, true);
+	}
+
+	set_i8(val, at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_U8;
+		this.dv.setInt8(at, val, true);
+	}
+	
+	u8(at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_U8;
+		return this.dv.getUint8(at, true);
+	}
+	
+	set_u8(val, at) {
+		if(!at) at = this.cursor;
+		this.cursor += SZ_U8;
+		this.dv.setUint8(at, val, true);
+	}
+	
+	vec3f(at) {
+		if(!at) at = this.cursor;
+		let x = this.r32();
+		let y = this.r32();
+		let z = this.r32();
+		return [x,y,z];
+	}
+	
+	str(at, until = 0) {
+		if(!until) {
+			until = at;
+			at = this.cursor;
+		}
+		let acc = "";
+		let arr = new Uint8Array(this.buf, at, until);
+		for(let i = 0; i < arr.length; i++) {
+			if(arr[i]) acc += String.fromCharCode(arr[i]);
+			else break; // null character
+		}
+		this.cursor += until;
+		return acc;
+	}
+	
+	set_str(val, size) {
+		let min = size > val.length ? val.length : size;
+		for(let c of val) {
+			if(c) this.set_u8(c.charCodeAt(0));
+		}
+		this.cursor += size - val.length;
+	}
+	
+}
+
+class vec3 {
+	x; y; z;
+	constructor(x,y,z) {
+		if(!x) {
+			this.x = 0; this.y = 0; this.z = 0;
+		} else if(!y) {
+			this.x = x[0]; this.y = x[1]; this.z = x[2];
+		} else {
+			this.x = x; this.y = y; this.z = z;
+		}
+	}
+}
+
+class Model {
+
+	/***** HEADER *****/
+					// size, byte offset (see Telliamed's lgmd.h)
+	signature; 		// u32, 0
+	version;		// u32, 4
+	name; 			// u8[8], 8
+	
+	max_radius; 	// float32, 16
+	min_radius; 	// float32, 20
+	max_bounds; 	// 3xfloat32, 24
+	min_bounds; 	// 3xfloat32, 36
+	center; 		// 3xfloat32, 48
+	
+	num_polys; 		// u16, 60
+	num_points; 	// u16, 62
+	num_params;		// u16, 64
+	num_materials; 	// u8, 66
+	num_vcalls; 	// u8, 67
+	num_vhots; 		// u8, 68
+	num_objs; 		// u8, 69
+	
+	offset_obj;		// u32, 70
+	offset_material;// u32, 74
+	offset_mapping;	// u32, 78
+	offset_vhot;	// u32, 82
+	offset_point;	// u32, 86
+	offset_light;	// u32, 90
+	offset_normal;	// u32, 94
+	offset_poly;	// u32, 96
+	offset_node;	// u32, 102
+	
+	bin_size; 		// u32, 106
+	
+	// version 4 only:
+		material_ex_flags;	// u32, 110
+		material_ex_offset; // u32, 114
+		material_ex_size;  	// u32, 118
+		
+	// END OF HEADER
+	
+	num_uvmaps; 	// calculated int
+	num_lights;		// calculated int 
+	num_normals; 	// calculated int
+	
+	
+	
+	points; 		// Float32Array, arranged [x,y,z, x,y,z, ...]
+	lights;
+	normals;
+	uvs;
+
+	polys;
+	materials; 		
+
+	build() {
+		let buf = new Buffer(new ArrayBuffer(122)); // todo - assuming version 4
+		buf.set_u32(0x444D474C); // sig
+		buf.set_u32(4); // version
+		buf.set_str(this.name, 8);
+
+		buf.set_r32(this.max_radius);
+		buf.set_r32(this.min_radius);
+
+		buf.set_r32(this.max_bounds[0]);
+		buf.set_r32(this.max_bounds[1]);
+		buf.set_r32(this.max_bounds[2]);
+
+		buf.set_r32(this.min_bounds[0]);
+		buf.set_r32(this.min_bounds[1]);
+		buf.set_r32(this.min_bounds[2]);
+
+		buf.set_r32(this.center[0]);
+		buf.set_r32(this.center[1]);
+		buf.set_r32(this.center[2]);
+
+		buf.set_u16(this.num_polys);
+		buf.set_u16(this.num_points);
+		buf.set_u16(this.num_params);
+		buf.set_u8(this.num_materials);
+		buf.set_u8(0); // num_vcalls
+		buf.set_u8(this.num_vhots);
+		buf.set_u8(this.num_objs);
+		buf.set_u32(this.offset_obj);
+		buf.set_u32(this.offset_material);
+		buf.set_u32(this.offset_mapping);
+		buf.set_u32(this.offset_vhot);
+		buf.set_u32(this.offset_point);
+		buf.set_u32(this.offset_light);
+		buf.set_u32(this.offset_normal);
+		buf.set_u32(this.offset_poly);
+		buf.set_u32(this.offset_node);
+		buf.set_u32(this.bin_size); // we don't know size yet
+		buf.set_u32(this.material_ex_flags);
+		buf.set_u32(this.material_ex_offset);
+		buf.set_u32(16); // material_ex_size
+
+		return buf;
+	}
+	
+
+	build_all() {
+		this.version = 4;
+		console.log("!!!")
+		console.log(this);
+		// first, blob out the lists that don't have headers
+		let points_buffer = new Buffer(new ArrayBuffer(this.points.length * 3 * SZ_R32));
+		let lights_buffer = new Buffer(new ArrayBuffer(this.points.length * LIGHT_HEADER_SIZE));
+
+		this.num_points = this.points.length;
+		for(i = 0; i < this.points.length; i++) {
+			points_buffer.set_r32(this.points[i][0]);
+			points_buffer.set_r32(this.points[i][1]);
+			points_buffer.set_r32(this.points[i][2]);
+			lights_buffer.set_u16(1); // todo - lights only work for ONE subobject for now
+			lights_buffer.set_u16(i);
+			lights_buffer.set_u32(1000);
+		}
+
+		this.num_normals = this.normals.length;
+		let normals_buffer = new Buffer(new ArrayBuffer(this.normals.length * 3 * SZ_R32));
+		for(i = 0; i < this.normals.length; i++) {
+			normals_buffer.set_r32(this.normals[i][0]);
+			normals_buffer.set_r32(this.normals[i][1]);
+			normals_buffer.set_r32(this.normals[i][2]);
+		}
+		
+		let uv_buffer = new Buffer(new ArrayBuffer(this.uvs.length * 2 * SZ_R32));
+		for(i = 0; i < this.uvs.length; i++) {
+			uv_buffer.set_r32(this.uvs[i][0]);
+			uv_buffer.set_r32(this.uvs[i][1]);
+		}
+
+		let pad0 = new Blob([]);
+		let pad1 = new Blob([new ArrayBuffer(1)], {type: "application/octet-stream"})
+		let pad2 = new Blob([new ArrayBuffer(2)], {type: "application/octet-stream"});
+		let pad3 = new Blob([new ArrayBuffer(3)], {type: "application/octet-stream"});
+
+		this.points = new Blob([points_buffer.buf, get_pad(points_buffer.buf.byteLength, pad0,pad1,pad2,pad3)], {type: "application/octet-stream"});
+		this.lights = new Blob([lights_buffer.buf, get_pad(lights_buffer.buf.byteLength, pad0,pad1,pad2,pad3)], {type: "application/octet-stream"});
+		this.normals = new Blob([normals_buffer.buf, get_pad(normals_buffer.buf.byteLength, pad0,pad1,pad2,pad3)], {type: "application/octet-stream"});
+		this.uvs = new Blob([uv_buffer.buf, get_pad(uv_buffer.buf.byteLength, pad0,pad1,pad2,pad3)], {type: "application/octet-stream"});
+
+		// then, the lists that do have headers
+		let poly_bucket = [];
+		for(i = 0; i < this.polys.length; i++) {
+			poly_bucket.push(this.polys[i].build(this.version).buf); 
+		}
+		this.polys = new Blob(poly_bucket, {type: "application/octet-stream"});
+		this.polys = new Blob([this.polys, get_pad(this.polys.size, pad0,pad1,pad2,pad3)])
+
+		let mats_bucket = [];
+		for(i = 0; i < this.materials.length; i++) {
+			this.materials[i].name = "WCRATE.GIF"
+			mats_bucket.push(this.materials[i].build().buf);
+		}
+		
+
+		// materialex hacks for now:
+		this.material_ex_flags = 0;
+		this.material_ex_size = 16;
+
+		let matsx_bucket = [];
+		for(i = 0; i < this.materials.length; i++) {
+			matsx_bucket.push((new MaterialEx()).build().buf);
+		}
+
+
+		this.materials = new Blob(mats_bucket,{type: "application/octet-stream"});
+		this.materials = new Blob([this.materials, get_pad(this.materials.size, pad0,pad1,pad2,pad3)], {type: "application/octet-stream"});
+		this.materials_ex = new Blob(matsx_bucket,{type: "application/octet-stream"});
+		this.materials_ex = new Blob([this.materials_ex, get_pad(this.materials_ex.size, pad0,pad1,pad2,pad3)], {type: "application/octet-stream"});
+
+		this.name = "haha";
+		this.objects = new Blob([this.objects.build().buf, get_pad(this.objects.build().buf.byteLength, pad0,pad1,pad2,pad3)], {type: "application/octet-stream"});
+		
+
+		this.offset_obj = 124; // 122 + pad2
+		this.offset_material = this.offset_obj + this.objects.size;
+		this.material_ex_offset = this.offset_material + this.materials.size;
+		this.offset_mapping = this.material_ex_offset + this.materials_ex.size;
+		this.offset_vhot = this.offset_mapping + this.uvs.size;
+		this.offset_point = this.offset_vhot; // until vhots are added
+		this.offset_light = this.offset_point + this.points.size;
+		this.offset_normal = this.offset_light + this.lights.size;
+		this.offset_poly = this.offset_normal + this.normals.size;
+		this.offset_node = this.offset_poly + this.polys.size;
+
+		// hideous bsp hack. maybe not so hideous. We don't need BSP trees.
+
+		// header size + leaf size + u16 array of polys
+		let bsp = new Buffer(new ArrayBuffer(3 + 19 + (this.num_polys * 2)));
+		bsp.set_u8(4);  			// type
+		bsp.set_u16(0);
+		bsp.set_u8(0);
+		bsp.set_r32(0);				// vec3 center
+		bsp.set_r32(0);
+		bsp.set_r32(0);
+		bsp.set_r32(this.max_radius);	// radius
+		bsp.set_u16(this.num_polys); 
+		
+		for(i = 0; i < this.num_polys; i++) {
+			bsp.set_u16(i * 31);
+		}
+
+		let bspblob = new Blob([bsp.buf], {type: "application/octet-stream"});
+
+		this.bin_size = this.offset_node + bspblob.size;
+		let bufmodel = new Blob([this.build().buf, pad2], {type: "application/octet-stream"});
+
+		this.megablob = new Blob([bufmodel,
+						this.objects, 
+						this.materials,
+						this.materials_ex,
+						this.uvs,  
+						this.points,
+						this.lights, this.normals, this.polys, bspblob], {type: "application/octet-stream"});
+
+
+		window.open(window.URL.createObjectURL(this.megablob));
+
+		console.log(this);
+	}
+	
+	show_stats() { // heh
+		//stat("signature", this.signature);
+		stat("version", this.version);
+		stat("name", this.name);
+		stat("max_radius", this.max_radius);
+		stat("min_radius", this.min_radius);
+		stat("max_bounds", this.max_bounds);
+		stat("min_bounds", this.min_bounds);
+		stat("num_points", this.num_points);
+	}
+}
+
+function get_pad(thing, p0, p1, p2, p3) {
+	let p = thing % 4;
+	switch(p) {
+	case 0: return p0;
+	case 1: return p1;
+	case 2: return p2;
+	case 3: return p3;
+	}
+}
+
+const OBJECT_HEADER_SIZE = 93;
+class Obj {
+	name; 		// u8[8]
+	transform; 	// 61 bytes, see Transform class 
+	child;		// i16
+	sibling; 	// i16
+	
+	// 0-based indices into their lists
+	first_vhot;		// u16 
+	num_vhots;  	// u16
+	first_point;	// u16
+	num_points; 	// u16
+	first_light;	// u16
+	num_lights; 	// u16
+	first_normal;	// u16
+	num_normals; 	// u16
+	
+	// byte offset into its list 
+	first_node; 	// u16
+	num_nodes; 		// u16
+	
+	build() {
+		let buf = new Buffer(new ArrayBuffer(OBJECT_HEADER_SIZE));
+		
+		buf.set_str(this.name, 7);
+		buf.set_u8(0); // null character - don't know if it matters, but it's safe
+		
+		/* todo add transforms
+		buf.set_u8(this.transform.type);
+		buf.set_i16(this.transform.id);
+		buf.set_r32(this.transform.min_position);
+		buf.set_r32(this.transform.max_position);
+		
+		buf.set_r32(this.transform.axis[0][0]);
+		buf.set_r32(this.transform.axis[0][1]);
+		buf.set_r32(this.transform.axis[0][2]);
+		buf.set_r32(this.transform.axis[1][0]);
+		buf.set_r32(this.transform.axis[1][1]);
+		buf.set_r32(this.transform.axis[1][2]);
+		buf.set_r32(this.transform.axis[2][0]);
+		buf.set_r32(this.transform.axis[2][1]);
+		buf.set_r32(this.transform.axis[2][2]);
+		
+		buf.set_r32(this.transform.center[0]);
+		buf.set_r32(this.transform.center[1]);
+		buf.set_r32(this.transform.center[2]);
+		*/
+		buf.cursor += TRANSFORM_HEADER_SIZE;
+		
+		buf.set_i16(this.child);
+		buf.set_i16(this.sibling);
+		buf.set_u16(this.first_vhot);
+		buf.set_u16(this.num_vhots);
+		buf.set_u16(this.first_point);
+		buf.set_u16(this.num_points);
+		buf.set_u16(this.first_light);
+		buf.set_u16(this.num_lights);
+		buf.set_u16(this.first_normal);
+		buf.set_u16(this.num_normals);
+		buf.set_u16(this.first_node);
+		buf.set_u16(this.num_nodes);
+		
+		return buf;
+	}
+}
+
+const MATERIAL_TYPE_TEXTURE = 0;
+const MATERIAL_TYPE_COLOR = 1;
+
+const MATERIAL_HEADER_SIZE = 26;
+class Material {
+	name;	// char[16]
+	type; 	// u8, 0 = tex, 1 = rgb
+	id; 	// i8
+	
+	// rgba - u8 each
+	blue;
+	green;
+	red; 	
+	// *u8 pad here*
+	pal_index;	// u32
+	
+	// tex
+	handle; 	// u32
+	uvscale; 	// r32
+
+	// END HEADER
+	// MaterialEX:
+	has_trans;
+	has_illum;
+	trans; 
+	illum; 
+	
+	build() {
+		let buf = new Buffer(new ArrayBuffer(MATERIAL_HEADER_SIZE));
+		
+		buf.set_str(this.name, 16);
+		buf.set_u8(this.type);
+		buf.set_i8(this.id);
+		
+		if(this.type == MATERIAL_TYPE_TEXTURE) { 
+			buf.set_u32(this.handle);
+			buf.set_r32(this.uvscale);
+		} else { //rgb
+			buf.set_u8(this.blue);
+			buf.set_u8(this.green);
+			buf.set_u8(this.red);
+			buf.set_u8(0); // pad
+			buf.set_u8(this.pal_index);
+		}
+		
+		return buf;
+	}
+}
+
+const MATERIAL_EX_HEADER_SIZE = 16;
+class MaterialEx {
+	trans; // r32
+	illum; // r32
+	unknown1; // something32
+	unknown2; // something32 (these two together seem like a sane double, though not all the time)
+
+	build() {
+		let buf = new Buffer(new ArrayBuffer(MATERIAL_EX_HEADER_SIZE));
+		buf.set_r32(0);
+		buf.set_r32(0);
+		buf.set_r32(0);
+		buf.set_r32(0);
+		return buf;
+	}
+}
+
+const LIGHT_HEADER_SIZE = 8;
+class Light {
+	object; 	//u16
+	point; 		//u16
+	unknown; 	//u32 - seems like this is either for SW dromed rendering (see rendobj.cpp:380),
+}				//		or is used and updated internally during runtime
+
+const VHOT_HEADER_SIZE = 16;
+class Vhot {
+	id; // i16
+	point; // vec3f
+}
+
+const POLY_TYPE_TEXTURE = 0x1B;
+const POLY_TYPE_RGB = 0x59;
+const POLY_TYPE_PAL = 0x39;
+
+const POLY_HEAD_SIZE = 12;
+class Polygon {
+	/* BEGIN HEADER */
+	id; 		// i16
+	material; 	// i16
+	type; 		// u8
+	num_points; // u8
+	normal; 	// u16, index into normal list
+	plane; 		// r32, length from center to poly surface (presumably the center?)
+	
+	points; 	// u16[], index into point list
+	lights; 	// u16[], index into lights list
+	uvs; 		// u16[], index into uv list IF type = 0x1B
+	mat_ix; 	// u8, version 4 only, 0-based index into materials
+	/* END HEADER */
+	
+	points;
+	lights;
+	uvs;
+	
+	build(version) {
+		if(version != 3 && version != 4) {
+			console.log("Polygon.build() - must supply version 3 or 4");
+			return;
+		}
+		let additional_sz = this.num_points * (SZ_U16 * 2); // points and lights list
+		if(this.type == POLY_TYPE_TEXTURE) additional_sz += this.num_points * SZ_U16; // UVs
+		if(version == 4) additional_sz += SZ_U8; // for mat_ix
+		let buf = new Buffer(new ArrayBuffer(POLY_HEAD_SIZE + additional_sz));
+		buf.set_i16(this.id);
+		buf.set_i16(this.material);
+		buf.set_u8(this.type);
+		buf.set_u8(this.num_points);
+		buf.set_u16(this.normal);
+		buf.set_r32(this.plane);
+		
+		for(let p of this.points) {
+			buf.set_u16(p);
+		}
+		for(let l of this.lights) {
+			buf.set_u16(l);
+		}
+		
+		if(this.type == POLY_TYPE_TEXTURE) {
+			for(let uv of this.uvs) {
+				buf.set_u16(uv);
+			}
+		}
+		if(version == 4) buf.set_u8(this.mat_ix);
+		return buf;
+		
+	}
+	
+	constructor() {
+		this.points = [];
+		this.lights = [];
+		this.uvs = [];
+	}
+}
+
+
+
+const TRANSFORM_HEADER_SIZE = 61;
+class Transform {
+	type;			// u8
+	id; 			// i32
+	min_position; 	// r32
+	max_position;	// r32
+	axis;			// vec3f[3]
+	center;			// vec3f
+}
+
+const BSP_NODE_RAW = 0;
+const BSP_NODE_SPLIT = 1;
+const BSP_NODE_CALL = 2;
+const BSP_NODE_HEADER = 4;
+
+const BSP_NODE_SIZE = 31;
+class BspRawNode {
+	type = BSP_NODE_RAW;
+	
+	bounds_center; 	// vec3f
+	bounds_radius; 	// r32
+	num_polys; 		// u16
+	polys;			// u16[]
+}
+
+class BspSplitNode {
+	type = BSP_NODE_SPLIT;
+
+	bounds_center; 	// vec3f
+	bounds_radius; 	// r32
+	num_polys_back;	// u16
+	normal; 		// u16
+	plane; 			// r32
+	back_node; 		// i16
+	front_node; 	// i16
+	num_polys_front;// u16
+	
+	back_polys; 	// u16[]
+	front_polys; 	// u16[]
+	
+}
+
+class BspCallNode {
+	type = BSP_NODE_CALL;
+	
+	bounds_center; 	// vec3f
+	bounds_radius; 	// r32
+	num_polys_back;	// u16
+	call_node; 		// s16
+	num_polys_front;// u16
+	
+	back_polys; 	// u16[]
+	front_polys; 	// u16[]
+}
+
+class BspHeaderNode {
+	type = BSP_NODE_HEADER;
+	
+	object;	// u16
+}
+
+
+let inp = document.getElementById("input");
+inp.addEventListener("change", open_file);
+
+function open_file() {
+	let f = inp.files[0]; 
+	let extension = f.name.split(".").slice(-1);
+	let loader = 0;
+	if (extension == "bin") loader = read_bin;
+	if (extension == "obj") loader = read_obj;
+	let reader = new FileReader();
+	reader.readAsArrayBuffer(f);
+	reader.addEventListener("loadend", () => {
+		let bin = reader.result;
+		read_bin(bin);
+	});
+	
+}
+
+function read_bin(bin) {
+	let buffer = new Buffer(bin);
+	let signature = buffer.u32();
+	if(signature != 0x444D474C) {
+		console.log("incorrect signature. Bye.");
+		return;
+	}
+	
+	model = new Model();
+	
+	model.version 		= buffer.u32();
+	model.name 			= buffer.str(8);
+	model.max_radius 	= buffer.r32();	
+	model.min_radius 	= buffer.r32();
+
+	model.max_bounds 	= buffer.vec3f();
+	model.min_bounds 	= buffer.vec3f();
+	model.center 	 	= buffer.vec3f();
+	
+	model.num_polys 	= buffer.u16();
+	model.num_points 	= buffer.u16();
+	model.num_params 	= buffer.u16();
+	model.num_materials = buffer.u8();
+	model.num_vcalls 	= buffer.u8();
+	model.num_vhots	 	= buffer.u8();
+	model.num_objs 		= buffer.u8();
+	
+	model.offset_obj 		= buffer.u32();
+	model.offset_material 	= buffer.u32();
+	model.offset_mapping 	= buffer.u32();
+	model.offset_vhot		= buffer.u32();
+	model.offset_point 		= buffer.u32();
+	model.offset_light 		= buffer.u32();
+	model.offset_normal 	= buffer.u32();
+	model.offset_poly 		= buffer.u32();
+	model.offset_node 		= buffer.u32();
+	
+	model.bin_size 	= buffer.u32(); 
+	
+	if(model.version == 4) {
+		model.material_ex_flags	= buffer.u32();
+		model.material_ex_offset= buffer.u32();
+		model.material_ex_size 	= buffer.u32();
+		model.uses_trans = model.material_ex_flags & 1;
+		model.uses_illum = model.material_ex_flags & 2;
+	}
+	
+	model.num_uvmaps = (model.offset_vhot - model.offset_mapping) / 8;
+	model.num_lights = (model.offset_normal - model.offset_light) / 8;
+	model.num_normals = (model.offset_poly - model.offset_normal) / 12;
+	
+	// points
+	let points = bin.slice(model.offset_point, model.offset_point + (model.num_points * 12));
+	model.points = new Float32Array(points);
+	
+	// normals
+	let normals = bin.slice(model.offset_normal, model.offset_normal + (model.num_normals * 12));
+	model.normals = new Float32Array(normals);
+	
+	// uvmaps
+	if(model.num_uvmaps > 0) {
+		let uvmaps = bin.slice(model.offset_mapping, model.offset_mapping + (model.num_uvmaps * 8));
+		model.uvmaps = new Float32Array(uvmaps);
+	}
+	
+	// lights
+	model.lights = [];
+	if(model.num_lights > 0) {
+		
+		let lights = bin.slice(model.offset_light, model.offset_light + (model.num_lights * 8));
+		let lbuffer = new Buffer(lights);
+		
+		for(let i = 0; i < model.num_lights; i++) {
+			let light = new Light();
+			
+			light.object  = lbuffer.u16();
+			light.point   = lbuffer.u16();
+			light.unknown = lbuffer.u32();
+			
+			model.lights.push(light);
+		}	
+	}
+	
+	// vhots
+	model.vhots = [];
+	if(model.num_vhots > 0) {
+	
+		let vhots = bin.slice(model.offset_vhot, model.offset_vhot + (VHOT_HEADER_SIZE * model.num_vhots));
+		let vbuffer = new Buffer(vhots);
+		
+		for(let i = 0; i < model.num_vhots; i++) {
+			let vhot = new Vhot();
+			
+			vhot.id 	= vbuffer.i32();
+			vhot.point  = vbuffer.vec3f();
+			
+			model.vhots.push(vhot);
+		}
+	}
+	
+	// materials
+	model.materials = []; 
+	let materials = bin.slice(model.offset_material, model.offset_material + (MATERIAL_HEADER_SIZE * model.num_materials));
+	let mbuffer = new Buffer(materials);
+
+	for(let i = 0; i < model.num_materials; i++) {		
+		let material = new Material();
+		
+		material.name 	= mbuffer.str(16);
+		material.type 	= mbuffer.u8();
+		material.id 	= mbuffer.i8();
+		
+		if(material.type == 1) { // it's RGB
+			material.blue 		= mbuffer.u8();
+			material.green 		= mbuffer.u8();
+			material.red 		= mbuffer.u8();
+								  mbuffer.u8(); // pad 
+			material.pal_index 	= mbuffer.u32();
+		} else { // it's a texture
+			material.handle 	= mbuffer.u32();
+			material.uvscale 	= mbuffer.r32();
+		}	
+		
+		model.materials.push(material);		
+	}
+
+	console.log(model)
+	// aux material
+	// optimistic assumption: the number of aux materials = number of real materials
+	if(model.version == 4 && model.material_ex_offset) {
+		let aux = bin.slice(model.material_ex_offset, model.material_ex_offset + (model.material_ex_size * model.num_materials));
+		let abuffer = new Buffer(aux)
+		for(let i = 0; i < model.num_materials; i++) {
+			model.materials[i].trans = abuffer.r32();
+			model.materials[i].illum = abuffer.r32();
+			if(model.material_ex_size > 8) { // sure enough, material_ex_size's warning against assuming struct size is correct
+				abuffer.r32();abuffer.r32(); // MaxUV texel crap
+			}
+		}
+	}
+	
+	// polygons
+	const POLY_TYPE_TEXTURE = 0x1B;
+	
+	model.polys = [];
+	
+	let offset_polys = [];
+	
+	buffer.cursor = model.offset_poly;
+	for(let i = 0; i < model.num_polys; i++) {
+		offset_polys.push(buffer.cursor - model.offset_poly);
+		let poly = new Polygon();
+		
+		poly.id = buffer.i16();
+		poly.material = buffer.i16();
+		poly.type = buffer.u8();
+		poly.num_points = buffer.u8();
+		poly.normal = buffer.u16();
+		poly.plane = buffer.r32();
+		
+		poly.points = [];
+		for(let i = 0; i < poly.num_points; i++) {
+			poly.points.push(buffer.u16());
+		}
+		
+		poly.lights = [];
+		for(let i = 0; i < poly.num_points; i++) {
+			poly.lights.push(buffer.u16());
+		}
+		
+		if(poly.type == POLY_TYPE_TEXTURE) {
+			poly.uvs = [];
+			for(let i = 0 ; i < poly.num_points; i++) {
+				poly.uvs.push(buffer.u16());
+			}
+		}
+		
+		if(model.version == 4) 
+			poly.mat_ix = buffer.u8();
+
+		model.polys.push(poly);
+		
+	}
+	
+	// objects
+	let objs = bin.slice(model.offset_obj, model.offset_obj + (OBJECT_HEADER_SIZE * model.num_objs));
+	let obuffer = new Buffer(objs);
+	
+	model.objects = [];
+	model.num_nodes = 0;
+	
+	let asdf = 0;
+	for(let i = 0; i < model.num_objs; i++) {
+		let obj = new Obj();
+		obj.name = obuffer.str(8);
+		
+		// transform 
+		obj.transform = new Transform();
+		obj.transform.type = obuffer.u8();
+		obj.transform.id = obuffer.i32();
+		obj.transform.min_position = obuffer.r32();
+		obj.transform.max_position = obuffer.r32();
+		obj.transform.axis = [];
+		obj.transform.axis.push(obuffer.vec3f());
+		obj.transform.axis.push(obuffer.vec3f());
+		obj.transform.axis.push(obuffer.vec3f());
+		obj.transform.center = obuffer.vec3f();
+		
+		obj.child = obuffer.i16();
+		obj.sibling = obuffer.i16();
+		
+		obj.first_vhot = obuffer.u16();
+		obj.num_vhots = obuffer.u16();
+		obj.first_point = obuffer.u16();
+		obj.num_points = obuffer.u16();
+		obj.first_light = obuffer.u16();
+		obj.num_lights = obuffer.u16();
+		obj.first_normal = obuffer.u16();
+		obj.num_normals = obuffer.u16();
+		
+		obj.first_node = obuffer.u16();
+		asdf = model.offset_obj + obuffer.cursor;
+		obj.num_nodes = obuffer.u16();
+		model.num_nodes += obj.num_nodes;
+		
+		model.objects.push(obj);
+	}
+	
+	// bsp
+	
+	// It _seems_ like Telliamed's code doesn't account for all nodes, only those nodes
+	// referenced by the object struct. So, optimistically, I'm assuming that all data from
+	// offset_node to EOF are bsp nodes
+	
+	console.log(model);
+	model.nodes = [];
+	buffer.cursor = model.offset_node;
+	while(buffer.cursor < model.bin_size) {
+		let node_type = buffer.u8();
+		switch(node_type) {
+			case BSP_NODE_RAW: {
+			
+				let node = new BspRawNode();
+				
+				node.bounds_center = buffer.vec3f();
+				node.bounds_radius = buffer.r32();
+				node.num_polys = buffer.u16(); 
+				
+				node.polys = [];
+				for(let j = 0; j < node.num_polys; j++) {
+					node.polys.push(buffer.u16());
+				}
+				
+				model.nodes.push(node);
+			} break;
+			case BSP_NODE_CALL: {
+				let node = new BspCallNode();
+				
+				node.bounds_center = buffer.vec3f();
+				node.bounds_radius = buffer.r32();
+				node.num_polys_back = buffer.u16(); 
+				node.call_node = buffer.i16();
+				node.num_polys_front = buffer.u16();
+				
+				node.back_polys = [];
+				for(let j = 0; j < node.num_polys_back; j++) {
+					node.back_polys.push(buffer.u16());
+				}
+				node.front_polys = [];
+				for(let j = 0; j < node.num_polys_front; j++) {
+					node.front_polys.push(buffer.u16());
+				}
+				
+				model.nodes.push(node);
+				
+			} break;
+			case BSP_NODE_SPLIT: {
+				let node = new BspSplitNode();
+				
+				node.bounds_center = buffer.vec3f();
+				node.bounds_radius = buffer.r32();
+				node.num_polys_back = buffer.u16(); 
+				node.normal = buffer.u16();
+				node.plane = buffer.r32();
+				node.back_node = buffer.i16();
+				node.front_node = buffer.i16();
+				node.num_polys_front = buffer.u16();
+				
+				node.back_polys = [];
+				for(let j = 0; j < node.num_polys_back; j++) {
+					node.back_polys.push(buffer.u16());
+				}
+				node.front_polys = [];
+				for(let j = 0; j < node.num_polys_front; j++) {
+					node.front_polys.push(buffer.u16());
+				}
+				
+				model.nodes.push(node);
+				
+			} break;
+			case BSP_NODE_HEADER: {
+				let node = new BspHeaderNode();
+				
+				node.object = buffer.u16();
+				model.nodes.push(node);
+			} break;
+			
+			
+		}
+	}
+		
+	console.log(model);
+	model.show_stats();
+}
+
+function read_obj(file) {
+	console.log(file);
+	let lines = file.split("\n");
+	
+	let vertices = [];
+	let uvs = [];
+	let normals = [];
+	let faces = [];
+	let materials = [];
+	let mat_names = [];
+	let objects = [];
+	let object_offsets = [];
+	let object_lengths = [];
+	
+	let cur_obj = 0;
+	let cur_mat = 0;
+	
+	let num_faces = 0;
+	for(let line of lines) {
+		let words = line.split(" ");
+		let cmd = words[0];
+		
+		if(cmd == "o") {
+			cur_obj = words.slice(1, -1).join(" ");
+			// todo - for now, don't deal with objects.
+			// the problem is wrangling the points list, since
+			// they need to be contiguous per object. 
+			// obj exporters do not guarantee this.
+		}
+		
+		if(cmd == "v") {
+			if(words.length != 4) {
+				console.log("V command, but num points != 3");
+				return;
+			} else {
+				vertices.push([parseFloat(words[1]), 
+							parseFloat(words[2]), 
+							parseFloat(words[3])]);
+			}
+		}
+		
+		else if(cmd == "vt") {
+			if(words.length != 3) {
+				console.log("More (or less) UV coordinates than we can deal with");
+				return;
+			} else {
+				uvs.push([words[1], words[2]]);
+			}
+		}
+		
+		else if(cmd == "usemtl") {
+			let mat_name = words.slice(1).join(" ");
+			console.log(words);
+			console.log(mat_name);
+			if (!mat_names.includes(mat_name)) {
+				let mat = new Material();
+				mat.name = mat_name;
+				mat.type = MATERIAL_TYPE_TEXTURE;
+				mat.id = mat_names.length + 1; // mat ids start from 1.
+				mat.handle = 0;
+				mat.uvscale = 0;
+				
+				cur_mat = mat.id;
+				mat_names.push(mat_name);
+				materials.push(mat);
+			} else {
+				cur_mat = mat_names.indexOf(mat_name) + 1;
+			}
+		}
+
+		else if(cmd == "vn") {
+			if(words.length != 4) {
+				console.log("vn wrong");
+				return;
+			} else {
+				normals.push([words[1], words[2], words[3]]);
+			}
+		}
+		
+		else if(cmd == "f") {
+			if(words.length != 4) {
+				console.log("face with more than 3 points");
+				return; // Dark might handle 4 and 5 points, I think? Let's not complicate things.
+			}
+			
+			let face = new Polygon();
+			face.id = num_faces++;
+			face.material = cur_mat; // todo - what if mats aren't defined?
+			face.type = POLY_TYPE_TEXTURE;	// todo - support other types?
+			face.num_points = 3; 
+			
+			
+			face.mat_ix = cur_mat - 1;
+			
+			for(p = 1; p < words.length; p++) {
+				let def = words[p].split("/");
+				if(def.length != 3) {
+					console.log("face  does not specify all of point, normal, and uv");
+					return; // this is also probably fine? UVs not strictly necessary.
+				}
+				face.points.push(def[0] - 1);
+				face.lights.push(def[0] - 1);
+				face.uvs.push(def[1] - 1);
+				face.normal = def[2] - 1;
+				
+				
+			}
+			face.points.reverse();
+			face.uvs.reverse();
+			// this assumes faces are defined after vertices
+			let v1 = {};
+			v1.x = vertices[face.points[0]][0];
+			v1.y = vertices[face.points[0]][1];
+			v1.z = vertices[face.points[0]][2];
+			face.plane = Math.sqrt(v1.x*v1.x + v1.y*v1.y + v1.z*v1.z);
+			faces.push(face);
+			
+		}
+	}
+	
+	// we have:
+	// / model (offsets is left)
+	// + object
+	// + materials
+	// / ex_materials (ignorable for now)
+	// + poly
+	// + points
+	// + normals
+	// + uvs
+	// + lights
+	// / vhots   (ignorable for now)
+	// - nodes   (we might never have to worry about this?)
+
+	let gx = 0; let gy = 0; let gz = 0;
+	for(let v of vertices) {
+		console.log(v);
+		if (Math.abs(v[0]) > gx) gx = v[0];
+		if (Math.abs(v[1]) > gy) gy = v[1];
+		if (Math.abs(v[2]) > gz) gz = v[2];
+	}
+	console.log(gx, gy, gz);
+	console.log(vertices);
+	
+
+	let materials_buffer = []; 
+	for(i = 0; i < materials.length; i++) {
+		materials_buffer.push(materials[i].build().buf); // we need .buf to make the blob (todo implement iterator on Buffer?)
+	}
+	
+	let our_model = new Model();
+	
+	our_model.points = vertices;
+
+	our_model.normals = normals;
+	our_model.uvs = uvs;
+
+	our_model.polys = faces;
+
+	our_model.materials = materials;
+	our_model.num_points = vertices.length;
+	our_model.num_polys = faces.length;
+	our_model.num_params = 0; // todo ????
+	our_model.num_materials = materials.length;
+	our_model.num_objs = 1;
+	our_model.num_vhots = 0; // todo 
+	our_model.num_vcalls = 0;
+	
+	// for now, one object with no vhots or transforms
+	let obj = new Obj();
+	obj.name = "asdf";
+	obj.child = -1;
+	obj.sibling = -1;
+	obj.first_vhot = 0;
+	obj.num_vhots = 0;
+	obj.first_point = 0;
+	obj.num_points = vertices.length;
+	obj.first_light = 0;
+	obj.num_lights = vertices.length;
+	obj.first_normal = 0; // uh oh. Maybe it doesn't matter what order they're in?
+	obj.num_normals = normals.length;
+	obj.first_node = 0; 
+	obj.num_nodes = 1;
+
+	our_model.center = [0,0,0];
+	our_model.max_bounds = [gx, gy, gz];
+	our_model.min_bounds = [-gx, -gy, -gz];
+	our_model.max_radius = 2; // sure
+	our_model.min_radius = 1; // why not
+	
+	// let objs_buffer = obj.build();
+	our_model.objects = obj;
+	console.log(our_model);
+	our_model.build_all();
+	
+	
+}
+
+</script>
