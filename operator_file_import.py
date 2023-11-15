@@ -239,12 +239,15 @@ def bin2intermediate(f):
 
     for _ in range(m.n_mats):
         mt = Material()
-        mt.name, mt.type, mt.num, mt.handle = unpack("< 16s BBI", f.read(22))
+        mt.name, mt.type, mt.num = unpack("< 16s Bb", f.read(18))
         mt.name = mt.name.decode('ascii').rstrip('\x00')
-        if mt.type == 0: # texture map
-            mt.uv = unpack("<f", f.read(4))
-        if mt.type == 1: #rgb
-            mt.pal = unpack("<I", f.read(4))
+        mt.dbl = False
+        if mt.type == 0x0: 
+            mt.type = "tmap"
+            mt.handle, mt.uv = unpack("< If", f.read(8))
+        if mt.type == 0x1: 
+            mt.type = "rgb"
+            mt.b, mt.g, mt.r, pad, mt.pal = unpack("< 4B I", f.read(8))
         m.materials[mt.num] = mt
         
     ## version 4 material extension
@@ -318,10 +321,10 @@ def bin2intermediate(f):
          poly.n_points, poly.norm, poly.plane) = unpack("< HH BB H f", f.read(12))
         poly.points = []
         poly.lights = []
+        poly.uvs = []
         
         if(poly.type & 3 == 3): # if this is a texture mapped poly
             has_uvs = True
-            poly.uvs = []
         else:
             has_uvs = False # todo - whatever else we need for rgb and pal
 
@@ -362,7 +365,19 @@ def bin2intermediate(f):
             poly.mat_idx = unpack("<B", f.read(1))[0]
             
         m.polys.append(poly)
-    
+
+    # hilariously inefficient double-sided check
+    for o in m.subobjects:
+        for i, p1 in enumerate(o.polys):
+            sort1 = sorted(p1.points)
+            for j, p2 in enumerate(o.polys):
+                if i == j:
+                    continue
+                else:
+                    if sort1 == sorted(p2.points):
+                        m.materials[p1.mat_id].dbl = True
+
+
     return m
 
 def intermediate2bin(): pass
@@ -379,34 +394,9 @@ def import_bin(context, filepath, use_some_setting):
         
     ##### Blenderize Materials #####
     pwd = os.path.dirname(filepath)
-    
-    imported_materials = []
     for mat in m.materials.values():
         if mat.name not in bpy.data.materials:
-            # image        
-            imgpath = pwd + "/txt16/" + mat.name
-            try:
-                imgfile = open(imgpath, "rb")
-            except FileNotFoundError:
-                imgpath = pwd + "/txt/" + mat.name
-                imgfile = open(imgpath, "rb")
-            
-            imgdata = get_gif_pixels(imgfile)
-            imgfile.close()
-            
-            image_data = [comp for rgba in imgdata.pixels for comp in rgba]
-            
-            image = bpy.data.images.new(mat.name, imgdata.width, imgdata.height, alpha=True)
-            
-            from array import array
-            image_data = array('f', image_data)
-            image.pixels = image_data  
-            image.pack()     
-            
-            # texture
-            texture = bpy.data.textures.new(mat.name, type='IMAGE')
-            texture.image = image
-            
+
             bmat = bpy.data.materials.new(mat.name)
             bmat.use_nodes = True
             nodes = bmat.node_tree.nodes
@@ -418,20 +408,47 @@ def import_bin(context, filepath, use_some_setting):
             
             links = nodes.data.links
             links.new(shader_node.outputs[0], output_node.inputs[0])
+
+            if mat.type == "tmap":
+     
+                imgpath = pwd + "/txt16/" + mat.name
+                try:
+                    imgfile = open(imgpath, "rb")
+                except FileNotFoundError:
+                    imgpath = pwd + "/txt/" + mat.name
+                    imgfile = open(imgpath, "rb")
+                
+                imgdata = get_gif_pixels(imgfile)
+                imgfile.close()
+                
+                image_data = [comp for rgba in imgdata.pixels for comp in rgba]
+                
+                image = bpy.data.images.new(mat.name, imgdata.width, imgdata.height, alpha=True)
+                
+                from array import array
+                image_data = array('f', image_data)
+                image.pixels = image_data  
+                image.pack()     
+                
+                texture = bpy.data.textures.new(mat.name, type='IMAGE')
+                texture.image = image
+                
+                nodes.new("ShaderNodeTexImage")
+                tex_node = nodes.get("Image Texture")
+                tex_node.image = image
+                links = bmat.node_tree.links
+                links.new(tex_node.outputs[0], shader_node.inputs[0])
+            else: # rgb
+                print("yo")
+                shader_node.inputs[0].default_value = (mat.r / 255.0, mat.g / 255.0, mat.b / 255.0, 1.0)
             
-            nodes.new("ShaderNodeTexImage")
-            tex_node = nodes.get("Image Texture")
-            tex_node.image = image
-            links = bmat.node_tree.links
-            link = links.new(tex_node.outputs[0], shader_node.inputs[0])
-            
+            bmat.dbl = mat.dbl
             if(m.version == 4):
                 bmat.transp = mat.trans
                 bmat.illum = mat.illum
+            
         else: 
             bmat = bpy.data.materials[mat.name]
-            
-        imported_materials.append(mat.name)
         
     ##### Blenderize Objects #####
     for o in m.subobjects:
@@ -446,7 +463,7 @@ def import_bin(context, filepath, use_some_setting):
                 new_obj.data.materials.append(bpy.data.materials[m.materials[p.mat_id].name])
             bp.material_index = new_obj.data.materials.find(m.materials[p.mat_id].name)
             
-            
+        
         uv_data = [uv for p in o.polys for uv in p.uvs]       
         uv_map = new_obj.data.uv_layers.new(do_init=False)
         if uv_data is not None:
@@ -464,14 +481,16 @@ def import_bin(context, filepath, use_some_setting):
         bpy.data.collections[0].objects.link(new_obj)
     
     for o in m.subobjects:
+
         if o.type == 1: # rotation
             bpy.ops.object.empty_add(type="CIRCLE", rotation=(0,0,PI/2.0), radius=2)
-            bpy.context.object.parent = o.instance      
+            bpy.context.object.parent = o.instance    
             bpy.context.object.name = "rotator"
         elif o.type == 2: # translation  
-            bpy.ops.object.empty_add(type="SINGLE_ARROW", rotation=(0,0,PI/2.0), radius=2)
-            bpy.context.object.parent = o.instance      
+            bpy.ops.object.empty_add(type="SINGLE_ARROW", rotation=(0,0,0))
+            bpy.context.object.parent = o.instance    
             bpy.context.object.name = "translator"
+
         if o.parent:
                         
             # note - I haven't checked if the matrix is identity by default,
