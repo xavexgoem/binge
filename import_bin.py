@@ -1,8 +1,10 @@
 import bpy, mathutils
-import os, sys
+import os
+
+import util
+
 from struct import pack, unpack
-from bpy_extras.image_utils import load_image
-from bpy.props import StringProperty, FloatProperty, BoolProperty, EnumProperty, IntProperty
+
 from math import pi as PI
 
 # TODO
@@ -13,140 +15,7 @@ from math import pi as PI
 # * rgb materials
 # * paths, recursive search, etc, for images
 
-# returns list of (r,g,b,a) tuples
-# * assumes sane raster data, and performs few checks
-# * does not deinterlace 
-# * cannot have any extension blocks 
-# * Outputs 1.0 alpha for every pixel; no transparency
-# * will only return the first frame of an animated gif
-def get_gif_pixels(f):
-    # just classes to cram values
-    class ImgData: pass
-    class GIFHeader: pass
-    class GIFImage: pass
 
-    header = GIFHeader()
-    palette = []
-    (header.tag, header.width, header.height, header.flags,
-     header.transparent_index, header.pixel_aspect) = unpack("< 6s 2H 3B", f.read(13))
-    if header.tag not in (b'GIF87a', b'GIF89a'):
-        raise ValueError("Not a valid GIF")
-
-    color_table_size = 1 << ((header.flags & 0x07) + 1)
-    color_table_depth = (header.flags & 0x70) + 1 # will this ever matter? It might.
-    color_table_present = bool(header.flags & 0x80)
-    if(color_table_present):
-        for i in range(color_table_size):
-            r,g,b = unpack("<3B",f.read(3))
-            palette.append((float(r/255.0), float(g/255.0), float(b/255.0), float(1.0)))
-
-    # todo - like vfig's, should at least allow that one fixed-size extension block
-    # but this might never matter
-    sentinel = unpack("<B", f.read(1))[0]
-    if sentinel != 0x2C:
-        raise ValueError("Image Descriptor must immediately follow GIF header")
-
-    img = GIFImage()
-    img.left, img.top, img.width, img.height, img.flags = unpack("<4H B", f.read(9))
-    img.color_table_present = bool(img.flags & 1)
-    img.color_table_size = 1<<((img.flags&0x07)+1)
-    img.interlaced = bool(img.flags & 2)
-    img.color_table_depth = ((img.flags & 0x70) >> 4) + 1
-
-    if(img.color_table_present):
-        palette = []
-        for i in range(img.color_table_size):
-            r,g,b = unpack("<3B",f.read(3))
-            palette.append((r/255.0, g/255.0, b/255.0, 1.0))
-
-    if palette == []:
-        raise ValueError("No color table present")
-
-    def clear_table(base_width):
-        table = [bytes((i,)) for i in range((1 << (base_width)))]
-        table.append('CLEAR')
-        table.append('END')
-        return table
-
-    def get_code(block, bit_cursor, code_width):
-        byte_cursor = int(bit_cursor / 8)
-        offset_into_byte = int(bit_cursor % 8)
-        b1 = block[byte_cursor]
-        b2 = block[byte_cursor + 1]
-        b3 = int(0)
-        if offset_into_byte + code_width > 16:
-            b3 = block[byte_cursor + 2]
-        mask = ((1<<code_width) - 1) << offset_into_byte
-        code = ((b1 | (b2<<8) | (b3<<16)) & mask) >> offset_into_byte
-        return code
-
-    base_width = unpack("<1B", f.read(1))[0]
-    code_width = base_width + 1 
-
-    block = ()
-    while True:
-        num_bytes = unpack("<1B", f.read(1))[0]
-        if num_bytes != 0:
-            block += unpack("<"+str(num_bytes) + "B", f.read(num_bytes))
-        else:
-            break
-            
-    table = clear_table(base_width)
-    clear_code = 1<<base_width
-    end_code = clear_code + 1
-
-    bit_cursor = 0
-    prev_code = get_code(block, bit_cursor, code_width)
-    if prev_code == clear_code:
-        bit_cursor += code_width
-        prev_code = get_code(block, bit_cursor, code_width)
-    prev_output = table[prev_code]
-    result = table[prev_code]
-
-    bit_cursor += code_width
-    next_output = None
-    while True:
-        next_code = get_code(block, bit_cursor, code_width)
-        
-        if next_code < len(table):
-            if next_code == clear_code:
-                table = clear_table(base_width)
-                bit_cursor += code_width
-                code_width = base_width + 1
-                prev_code = get_code(block, bit_cursor, code_width)
-                prev_output = table[prev_code]
-                result += table[prev_code]
-                bit_cursor += code_width
-                continue
-            elif next_code == end_code:
-                break
-            else:
-                next_output = table[next_code]
-                table.append(prev_output + next_output[:1])
-        else:
-            next_output = table[prev_code] + table[prev_code][:1]
-            table.append(next_output)
-
-        result += next_output
-        
-        prev_code = next_code
-        prev_output = next_output
-
-        bit_cursor += code_width
-        
-        if len(table) == 1<<code_width:
-            if code_width < 12:
-                code_width += 1
-    
-    pixels = []
-    for i in result:
-        pixels.append(palette[i])
-        
-    imgdata = ImgData()
-    imgdata.pixels = pixels
-    imgdata.width = img.width
-    imgdata.height = img.height
-    return imgdata
 
 # for cramming data, because I want dot notation
 class vec3: pass
@@ -156,21 +25,6 @@ class Material: pass
 class Vhot: pass
 class Light: pass 
 class Poly: pass
-
-def blend2intermediate():
-    m = Model()
-    
-    # for now, focusing ONLY on 3chair
-    
-    # mesh contains list of vertices, list of polygons
-    # polygons index into list of vertices
-    # then there's uv layer, which I don't understand atm
-    
-    blobject = [blo for blo in bpy.context.scene.objects if blo.visible_get()]
-    for blo in blobject:
-        if blo.type == "MESH":
-            print(blo.name)
-    
 
 def bin2intermediate(f): 
     
@@ -375,10 +229,6 @@ def bin2intermediate(f):
 
 
     return m
-
-def intermediate2bin(): pass
-
-def intermediate2blend(): pass
         
 def import_bin(context, filepath, use_some_setting):
     
@@ -414,7 +264,7 @@ def import_bin(context, filepath, use_some_setting):
                     imgpath = pwd + "/txt/" + mat.name
                     imgfile = open(imgpath, "rb")
                 
-                imgdata = get_gif_pixels(imgfile)
+                imgdata = util.get_gif_pixels(imgfile)
                 imgfile.close()
                 
                 image_data = [comp for rgba in imgdata.pixels for comp in rgba]
@@ -516,97 +366,5 @@ def import_bin(context, filepath, use_some_setting):
     return {'FINISHED'}
 
 
-# ImportHelper is a helper class, defines filename and
-# invoke() function which calls the file selector.
-from bpy_extras.io_utils import ImportHelper
-from bpy.props import StringProperty, BoolProperty, EnumProperty
-from bpy.types import Operator
 
-class DarkMaterialProperties(bpy.types.Panel):
-    bl_idname = 'DE_MATPANEL_PT_dark_engine_exporter'
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_context = 'material'
-    bl_label = 'Dark Engine Materials (NewDark Toolkit)'
-    
-    def draw(self, context):
-        activeMat = context.active_object.active_material
-        layout = self.layout
-        layout.row().prop(activeMat, 'shader')
-        layout.row().prop(activeMat, 'transp')
-        layout.row().prop(activeMat, 'illum')
-        layout.row().prop(activeMat, 'dbl')
-        layout.row().prop(activeMat, 'nocopy')
-        layout.row().separator()
-        layout.row().operator('material.import_from_custom', icon = 'MATERIAL')
-
-class ImportSomeData(Operator, ImportHelper):
-    """This appears in the tooltip of the operator and in the generated docs"""
-    bl_idname = "import_test.some_data"  # important since its how bpy.ops.import_test.some_data is constructed
-    bl_label = "Import Some Data"
-
-    # ImportHelper mixin class uses this
-    filename_ext = ".bin"
-
-    filter_glob: StringProperty(
-        default="*.bin",
-        options={'HIDDEN'},
-        maxlen=255,  # Max internal buffer length, longer would be clamped.
-    )
-
-    # List of operator properties, the attributes will be assigned
-    # to the class instance from the operator settings before calling.
-    use_setting: BoolProperty(
-        name="Example Boolean",
-        description="Example Tooltip",
-        default=True,
-    )
-
-    type: EnumProperty(
-        name="Example Enum",
-        description="Choose between two items",
-        items=(
-            ('OPT_A', "First Option", "Description one"),
-            ('OPT_B', "Second Option", "Description two"),
-        ),
-        default='OPT_A',
-    )
-
-    def execute(self, context):
-        return import_bin(context, self.filepath, self.use_setting)
-
-
-# Only needed if you want to add into a dynamic menu
-def menu_func_import(self, context):
-    self.layout.operator(ImportSomeData.bl_idname, text="Text Import Operator")
-
-# Register and add to the "file selector" menu (required to use F3 search "Text Import Operator" for quick access)
-def register():
-    bpy.utils.register_class(ImportSomeData)
-    
-    bpy.types.Material.shader = EnumProperty(name='Shader Type', description='Face/vertex brigtness type.',
-        items = [ 
-            ('PHONG', 'PHONG', 'Face brightness smoothly blended between brightness of each vertex. Smooth edges. [Note: true Phong is not supported by the Dark Engine, it will automatically use Gouraud.'), 
-            ('GOURAUD', 'GOURAUD', 'Face brightness smoothly blended between brightness of each vertex. Smooth edges.'),
-            ('FLAT', 'FLAT', 'Face evenly lit, using the brightness of the centre. Hard edges.') 
-        ]
-    )
-    bpy.types.Material.transp = FloatProperty(name='Transparency', description='How transpent this material is. 0 = opaque (default), 100 = transparent', min=0.0, max=1.0)
-    bpy.types.Material.illum = FloatProperty(name='Illumination', description='Material brightness. 0 = use natural lighting (default), 100 = fully illuminated', min=0.0, max=1.0)
-    bpy.types.Material.dbl = BoolProperty(name='Double Sided', description='Draw material from front and back of face')
-    bpy.types.Material.nocopy = BoolProperty(name='Do Not Copy Texture', description='Do not copy this texture when the object is exported. E.g. select this if the texture is orginally from a .crf file, or you don\'t want to overwrite it in txt16')
-    bpy.utils.register_class(DarkMaterialProperties)
-    #bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
-
-
-def unregister():
-    bpy.utils.unregister_class(ImportSomeData)
-    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
-
-
-if __name__ == "__main__":
-    register()
-    # test call
-    bpy.ops.import_test.some_data('INVOKE_DEFAULT')
-    #blend2intermediate()
 
